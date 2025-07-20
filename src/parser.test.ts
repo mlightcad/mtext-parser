@@ -828,6 +828,48 @@ describe('MTextParser', () => {
     });
   });
 
+  describe('Unicode (\\U+XXXX) escape sequences', () => {
+    it('decodes Unicode BMP and supplementary plane code points', () => {
+      // Greek capital omega: \U+03A9
+      let parser = new MTextParser('Omega: \\U+03A9');
+      let tokens = Array.from(parser.parse());
+      expect(tokens[0].type).toBe(TokenType.WORD);
+      expect(tokens[0].data).toBe('Omega:');
+      expect(tokens[1].type).toBe(TokenType.SPACE);
+      expect(tokens[2].type).toBe(TokenType.WORD);
+      expect(tokens[2].data).toBe('Ω');
+
+      // Emoji: \U+1F600 (grinning face)
+      parser = new MTextParser('Smile: \\U+1F600');
+      tokens = Array.from(parser.parse());
+      expect(tokens[0].type).toBe(TokenType.WORD);
+      expect(tokens[0].data).toBe('Smile:');
+      expect(tokens[1].type).toBe(TokenType.SPACE);
+      expect(tokens[2].type).toBe(TokenType.WORD);
+      expect(tokens[2].data).toBe('😀');
+    });
+
+    it('handles invalid or incomplete Unicode escapes as literal text', () => {
+      // Not enough hex digits
+      let parser = new MTextParser('Test: \\U+12');
+      let tokens = Array.from(parser.parse());
+      expect(tokens[0].type).toBe(TokenType.WORD);
+      expect(tokens[0].data).toBe('Test:');
+      expect(tokens[1].type).toBe(TokenType.SPACE);
+      expect(tokens[2].type).toBe(TokenType.WORD);
+      expect(tokens[2].data).toBe('\\U+12');
+
+      // Invalid hex
+      parser = new MTextParser('Test: \\U+ZZZZ');
+      tokens = Array.from(parser.parse());
+      expect(tokens[0].type).toBe(TokenType.WORD);
+      expect(tokens[0].data).toBe('Test:');
+      expect(tokens[1].type).toBe(TokenType.SPACE);
+      expect(tokens[2].type).toBe(TokenType.WORD);
+      expect(tokens[2].data).toBe('\\U+ZZZZ');
+    });
+  });
+
   describe('stacking', () => {
     it('parses basic fractions with different dividers', () => {
       let parser = new MTextParser('\\S1/2;');

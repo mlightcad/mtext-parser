@@ -1116,6 +1116,32 @@ export class MTextParser {
                 // If not a valid multi-byte code, treat as literal text
                 word += '\\M';
                 continue;
+              case 'U':
+                // Handle Unicode escape: \U+XXXX or \U+XXXXXXXX
+                if (this.scanner.peek() === '+') {
+                  this.scanner.consume(1); // Consume the '+'
+                  const hexMatch = this.scanner.tail.match(/^[0-9A-Fa-f]{4,8}/);
+                  if (hexMatch) {
+                    const hexCode = hexMatch[0];
+                    this.scanner.consume(hexCode.length);
+                    const codePoint = parseInt(hexCode, 16);
+                    let decodedChar = '';
+                    try {
+                      decodedChar = String.fromCodePoint(codePoint);
+                    } catch {
+                      decodedChar = '▯';
+                    }
+                    if (word) {
+                      return [wordToken, word];
+                    }
+                    return [wordToken, decodedChar];
+                  }
+                  // If no valid hex code found, rewind the '+' character
+                  this.scanner.consume(-1);
+                }
+                // If not a valid Unicode code, treat as literal text
+                word += '\\U';
+                continue;
               default:
                 if (cmd) {
                   try {
