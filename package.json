@@ -10,8 +10,9 @@
   "author": "MLight Lee <mlight.lee@outlook.com>",
   "repository": {
     "type": "git",
-    "url": "git://github.com/mlight-lee/mtext-parser"
+    "url": "https://gitlab.com/mlightcad/mtext-parser"
   },
+  "homepage": "https://gitlab.com/mlightcad/mtext-parser",
   "scripts": {
     "build": "vite build",
     "build:example": "vite build --config vite.config.ts --mode example",
