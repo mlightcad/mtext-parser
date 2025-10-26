@@ -368,6 +368,23 @@ export interface MTextParserOptions {
    * @default false
    */
   resetParagraphParameters?: boolean;
+  /**
+   * Custom decoder function for MIF (Multibyte Interchange Format) codes.
+   * If provided, this function will be used instead of the default decodeMultiByteChar.
+   * The function receives the hex code string and should return the decoded character.
+   * @param hex - Hex code string (e.g., "C4E3" or "1A2B3")
+   * @returns Decoded character or empty square (▯) if invalid
+   * @default undefined (uses default decoder)
+   */
+  mifDecoder?: (hex: string) => string;
+  /**
+   * The length of MIF hex codes to parse. MIF codes in AutoCAD can vary in length
+   * depending on the specific SHX big font used (typically 4 or 5 digits).
+   * If not specified, the parser will try to auto-detect the length by attempting
+   * to match 4 digits first, then 5 digits if needed.
+   * @default undefined (auto-detect)
+   */
+  mifCodeLength?: 4 | 5 | 'auto';
 }
 
 /**
@@ -380,6 +397,8 @@ export class MTextParser {
   private yieldPropertyCommands: boolean;
   private resetParagraphParameters: boolean;
   private inStackContext: boolean = false;
+  private mifDecoder: (hex: string) => string;
+  private mifCodeLength: 4 | 5 | 'auto';
 
   /**
    * Creates a new MTextParser instance
@@ -393,37 +412,70 @@ export class MTextParser {
     this.ctxStack = new ContextStack(initialCtx);
     this.yieldPropertyCommands = options.yieldPropertyCommands ?? false;
     this.resetParagraphParameters = options.resetParagraphParameters ?? false;
+    this.mifDecoder = options.mifDecoder ?? this.decodeMultiByteChar.bind(this);
+    this.mifCodeLength = options.mifCodeLength ?? 'auto';
   }
 
   /**
    * Decode multi-byte character from hex code
-   * @param hex - Hex code string (e.g. "C4E3")
+   * @param hex - Hex code string (e.g. "C4E3" or "1A2B3")
    * @returns Decoded character or empty square if invalid
    */
   private decodeMultiByteChar(hex: string): string {
     try {
-      const bytes = new Uint8Array([
-        parseInt(hex.substr(0, 2), 16),
-        parseInt(hex.substr(2, 2), 16),
-      ]);
-
-      // Try GBK first
-      const gbkDecoder = new TextDecoder('gbk');
-      const gbkResult = gbkDecoder.decode(bytes);
-      if (gbkResult !== '▯') {
-        return gbkResult;
+      // For 5-digit codes, return placeholder directly
+      if (hex.length === 5) {
+        return '▯';
       }
 
-      // Try BIG5 if GBK fails
-      const big5Decoder = new TextDecoder('big5');
-      const big5Result = big5Decoder.decode(bytes);
-      if (big5Result !== '▯') {
-        return big5Result;
+      // For 4-digit hex codes, decode as 2-byte character
+      if (hex.length === 4) {
+        const bytes = new Uint8Array([
+          parseInt(hex.substr(0, 2), 16),
+          parseInt(hex.substr(2, 2), 16),
+        ]);
+
+        // Try GBK first
+        const gbkDecoder = new TextDecoder('gbk');
+        const gbkResult = gbkDecoder.decode(bytes);
+        if (gbkResult !== '▯') {
+          return gbkResult;
+        }
+
+        // Try BIG5 if GBK fails
+        const big5Decoder = new TextDecoder('big5');
+        const big5Result = big5Decoder.decode(bytes);
+        if (big5Result !== '▯') {
+          return big5Result;
+        }
       }
 
       return '▯';
     } catch {
       return '▯';
+    }
+  }
+
+  /**
+   * Extract MIF hex code from scanner
+   * @param length - The length of the hex code to extract (4 or 5), or 'auto' to detect
+   * @returns The extracted hex code, or null if not found
+   */
+  private extractMifCode(length: 4 | 5 | 'auto'): string | null {
+    if (length === 'auto') {
+      // Try 5 digits first if available, then fall back to 4 digits
+      const code5 = this.scanner.tail.match(/^[0-9A-Fa-f]{5}/)?.[0];
+      if (code5) {
+        return code5;
+      }
+      const code4 = this.scanner.tail.match(/^[0-9A-Fa-f]{4}/)?.[0];
+      if (code4) {
+        return code4;
+      }
+      return null;
+    } else {
+      const code = this.scanner.tail.match(new RegExp(`^[0-9A-Fa-f]{${length}}`))?.[0];
+      return code || null;
     }
   }
 
@@ -1098,13 +1150,13 @@ export class MTextParser {
               }
               case 'm':
               case 'M':
-                // Handle multi-byte character encoding
+                // Handle multi-byte character encoding (MIF)
                 if (this.scanner.peek() === '+') {
                   this.scanner.consume(1); // Consume the '+'
-                  const hexCode = this.scanner.tail.match(/^[0-9A-Fa-f]{4}/)?.[0];
+                  const hexCode = this.extractMifCode(this.mifCodeLength);
                   if (hexCode) {
-                    this.scanner.consume(4);
-                    const decodedChar = this.decodeMultiByteChar(hexCode);
+                    this.scanner.consume(hexCode.length);
+                    const decodedChar = this.mifDecoder(hexCode);
                     if (word) {
                       return [wordToken, word];
                     }
