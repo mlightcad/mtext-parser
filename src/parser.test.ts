@@ -924,16 +924,16 @@ describe('MTextParser', () => {
     it('decodes specific 5-digit MIF codes correctly', () => {
       // Test individual 5-digit MIF codes from the provided test data
       const testCases = [
-        { code: '1928D', description: 'MIF code 1928D' },
-        { code: '18DD1', description: 'MIF code 18DD1' },
-        { code: '19770', description: 'MIF code 19770' },
-        { code: '194C2', description: 'MIF code 194C2' },
-        { code: '190A7', description: 'MIF code 190A7' },
-        { code: '18DEC', description: 'MIF code 18DEC' },
-        { code: '18142', description: 'MIF code 18142' },
+        { code: '1928D', decoded: '注' },
+        { code: '18DD1', decoded: '采' },
+        { code: '19770', decoded: '用' },
+        { code: '194C2', decoded: '板' },
+        { code: '190A7', decoded: '制' },
+        { code: '18DEC', decoded: '作' },
+        { code: '18142', decoded: '。' },
       ];
 
-      testCases.forEach(({ code, description }) => {
+      testCases.forEach(({ code, decoded }) => {
         const parser = new MTextParser(`\\M+${code}`, undefined, {
           mifCodeLength: 5,
         });
@@ -941,7 +941,7 @@ describe('MTextParser', () => {
         expect(tokens[0].type).toBe(TokenType.WORD);
         // Note: decodeMultiByteChar returns '▯' for 5-digit codes
         if (tokens[0].data && typeof tokens[0].data === 'string') {
-          expect(tokens[0].data).toBe('▯');
+          expect(tokens[0].data).toBe(decoded);
         }
       });
     });

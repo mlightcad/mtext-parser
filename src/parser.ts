@@ -425,11 +425,26 @@ export class MTextParser {
     try {
       // For 5-digit codes, return placeholder directly
       if (hex.length === 5) {
-        return '▯';
-      }
+        const prefix = hex[0];
 
-      // For 4-digit hex codes, decode as 2-byte character
-      if (hex.length === 4) {
+        // Notes:
+        // I know AutoCAD uses prefix 1 for Shift-JIS, 2 for big5, and 5 for gbk.
+        // But I don't know whether there are other prefixes and their meanings.
+        let encoding = 'gbk';
+        if (prefix === '1') {
+          encoding = 'shift-jis';
+        } else if (prefix === '2') {
+          encoding = 'big5';
+        }
+        const bytes = new Uint8Array([
+          parseInt(hex.substr(1, 2), 16),
+          parseInt(hex.substr(3, 2), 16),
+        ]);
+        const decoder = new TextDecoder(encoding);
+        const result = decoder.decode(bytes);
+        return result;
+      } else if (hex.length === 4) {
+        // For 4-digit hex codes, decode as 2-byte character
         const bytes = new Uint8Array([
           parseInt(hex.substr(0, 2), 16),
           parseInt(hex.substr(2, 2), 16),
