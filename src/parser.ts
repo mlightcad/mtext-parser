@@ -193,6 +193,7 @@ const SPECIAL_CHAR_ENCODING: Record<string, string> = {
   c: 'Ø',
   d: '°',
   p: '±',
+  '%': '%',
 };
 
 /**
