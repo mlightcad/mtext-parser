@@ -193,6 +193,7 @@ const SPECIAL_CHAR_ENCODING: Record<string, string> = {
   c: 'Ø',
   d: '°',
   p: '±',
+  '%': '%',
 };
 
 /**
@@ -1239,8 +1240,22 @@ export class MTextParser {
             word += specialChar;
             continue;
           } else {
-            // Skip invalid special character codes
-            this.scanner.consume(3);
+            /**
+             * Supports Control Codes: `%%ddd`, where ddd is a three-digit decimal number representing the ASCII code value of the character.
+             * 
+             * Reference: https://help.autodesk.com/view/ACD/2026/ENU/?guid=GUID-968CBC1D-BA99-4519-ABDD-88419EB2BF92
+             */
+            const digits = [code, this.scanner.peek(3), this.scanner.peek(4)];
+
+            if (digits.every((d) => d >= '0' && d <= '9')) {
+              const charCode = Number.parseInt(digits.join(''), 10);
+              this.scanner.consume(5);
+              word += String.fromCharCode(charCode);
+            } else {
+              // Skip invalid special character codes
+              this.scanner.consume(3);
+            }
+
             continue;
           }
         }
