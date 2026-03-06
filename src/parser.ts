@@ -214,7 +214,7 @@ const CHAR_TO_ALIGN: Record<string, MTextParagraphAlignment> = {
  */
 export function rgb2int(rgb: RGB): number {
   const [r, g, b] = rgb;
-  return (b << 16) | (g << 8) | r;
+  return (r << 16) | (g << 8) | b;
 }
 
 /**
@@ -223,9 +223,9 @@ export function rgb2int(rgb: RGB): number {
  * @returns RGB color tuple
  */
 export function int2rgb(value: number): RGB {
-  const r = value & 0xff;
+  const r = (value >> 16) & 0xff;
   const g = (value >> 8) & 0xff;
-  const b = (value >> 16) & 0xff;
+  const b = value & 0xff;
   return [r, g, b];
 }
 
