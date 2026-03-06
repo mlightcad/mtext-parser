@@ -1,6 +1,6 @@
 {
   "name": "@mlightcad/mtext-parser",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "AutoCAD MText parser written in TypeScript",
   "type": "module",
   "main": "dist/parser.cjs.js",
@@ -17,12 +17,13 @@
     "build": "vite build",
     "build:example": "vite build --config vite.config.ts --mode example",
     "build:types": "tsc --emitDeclarationOnly",
-    "test": "jest",
     "example": "npm run build && npm run build:example && node dist/node/example.cjs.js",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\"",
     "lint": "eslint ./src --ext .ts",
-    "lint:fix": "eslint ./src --ext .ts --fix"
+    "lint:fix": "eslint ./src --ext .ts --fix",
+    "release": "node tools/release.mjs",
+    "test": "jest"
   },
   "keywords": [
     "autocad",

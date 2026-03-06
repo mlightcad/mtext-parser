@@ -16,17 +16,17 @@ import {
 describe('Utility Functions', () => {
   describe('rgb2int', () => {
     it('converts RGB tuple to integer', () => {
-      expect(rgb2int([255, 0, 0])).toBe(0x0000ff);
+      expect(rgb2int([255, 0, 0])).toBe(0xff0000);
       expect(rgb2int([0, 255, 0])).toBe(0x00ff00);
-      expect(rgb2int([0, 0, 255])).toBe(0xff0000);
+      expect(rgb2int([0, 0, 255])).toBe(0x0000ff);
     });
   });
 
   describe('int2rgb', () => {
     it('converts integer to RGB tuple', () => {
-      expect(int2rgb(0x0000ff)).toEqual([255, 0, 0]);
+      expect(int2rgb(0xff0000)).toEqual([255, 0, 0]);
       expect(int2rgb(0x00ff00)).toEqual([0, 255, 0]);
-      expect(int2rgb(0xff0000)).toEqual([0, 0, 255]);
+      expect(int2rgb(0x0000ff)).toEqual([0, 0, 255]);
     });
   });
 
