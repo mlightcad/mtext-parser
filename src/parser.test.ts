@@ -1585,6 +1585,31 @@ describe('MTextParser', () => {
       expect(tokens[3].data).toBe('Text');
       expect(tokens[3].ctx.rgb).toEqual([255, 0, 0]);
     });
+
+    it('yields a restore token after leaving a color block and skips \\C256 when no change occurs', () => {
+      const mtext =
+        '{\\C7;White Text} AfterFirst\\P{\\C256;By Layer}\\P{\\c16761035;Pink (0x0FFC0CB)}';
+      const parser = new MTextParser(mtext, undefined, {
+        yieldPropertyCommands: true,
+      });
+      const tokens = Array.from(parser.parse());
+      const propTokens = tokens.filter(t => t.type === TokenType.PROPERTIES_CHANGED);
+      const commandTokens = propTokens.filter(t => t.data.command !== undefined);
+
+      expect(commandTokens.map(t => t.data.command)).toEqual(['C', 'c']);
+
+      const restoreAfterFirstBlock = propTokens.find(
+        t => t.data.command === undefined && t.data.depth === 0 && t.data.changes?.aci === 256
+      );
+      expect(restoreAfterFirstBlock).toBeDefined();
+
+      const rgbToken = commandTokens[1];
+      expect(rgbToken.data).toEqual({
+        command: 'c',
+        changes: { aci: null, rgb: [255, 192, 203] },
+        depth: 1,
+      });
+    });
   });
 });
 
