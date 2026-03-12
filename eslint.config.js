@@ -34,10 +34,11 @@ export default [
       'eqeqeq': ['error', 'always'],
       'no-duplicate-imports': 'error',
       'no-undef': ['error', { 'typeof': true }],
-      'no-unused-vars': ['warn', { 
-        'args': 'none',
-        'argsIgnorePattern': '^_', 
-        'varsIgnorePattern': '^_|^[A-Z][a-zA-Z]*$'  // This will ignore both _-prefixed vars and capitalized enum values
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': ['warn', {
+        args: 'none',
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_|^[A-Z][a-zA-Z]*$' // Ignore both _-prefixed vars and capitalized enum values
       }],
       'no-console': 'off'
     },
