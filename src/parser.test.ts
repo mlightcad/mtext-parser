@@ -1863,4 +1863,35 @@ describe('MTextColor', () => {
     expect(color.rgb).toEqual([1, 2, 3]);
     expect(copy.rgb).toEqual([4, 5, 6]);
   });
+
+  it('fromCssColor parses hex and rgb()', () => {
+    const hex = MTextColor.fromCssColor('#ff0000');
+    expect(hex).not.toBeNull();
+    expect(hex!.rgb).toEqual([255, 0, 0]);
+
+    const shortHex = MTextColor.fromCssColor('#0f0');
+    expect(shortHex).not.toBeNull();
+    expect(shortHex!.rgb).toEqual([0, 255, 0]);
+
+    const rgb = MTextColor.fromCssColor('rgb(0, 128, 255)');
+    expect(rgb).not.toBeNull();
+    expect(rgb!.rgb).toEqual([0, 128, 255]);
+  });
+
+  it('fromCssColor handles rgba() and rejects transparent', () => {
+    const rgba = MTextColor.fromCssColor('rgba(10, 20, 30, 0.5)');
+    expect(rgba).not.toBeNull();
+    expect(rgba!.rgb).toEqual([10, 20, 30]);
+
+    const transparent = MTextColor.fromCssColor('transparent');
+    expect(transparent).toBeNull();
+  });
+
+  it('toCssColor returns hex for RGB and null for ACI', () => {
+    const rgb = new MTextColor([255, 0, 0]);
+    expect(rgb.toCssColor()).toBe('#ff0000');
+
+    const aci = new MTextColor(1);
+    expect(aci.toCssColor()).toBeNull();
+  });
 });

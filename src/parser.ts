@@ -229,6 +229,75 @@ export function int2rgb(value: number): RGB {
   return [r, g, b];
 }
 
+function clampColorChannel(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function normalizeColorNumber(color: number): number {
+  return Math.max(0, Math.min(0xffffff, Math.round(color)));
+}
+
+function colorNumberToHex(color: number | null): string | null {
+  if (color === null) return null;
+  return `#${normalizeColorNumber(color).toString(16).padStart(6, '0')}`;
+}
+
+function normalizeHexColor(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(normalized)) return normalized;
+  if (/^[0-9a-f]{6}$/.test(normalized)) return `#${normalized}`;
+  if (/^#[0-9a-f]{3}$/.test(normalized)) {
+    const r = normalized[1];
+    const g = normalized[2];
+    const b = normalized[3];
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  if (/^[0-9a-f]{3}$/.test(normalized)) {
+    const r = normalized[0];
+    const g = normalized[1];
+    const b = normalized[2];
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return null;
+}
+
+function cssColorToRgbValue(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const raw = value.trim().toLowerCase();
+  if (raw === 'transparent') return null;
+
+  const hex = normalizeHexColor(raw);
+  if (hex) {
+    return normalizeColorNumber(Number.parseInt(hex.slice(1), 16));
+  }
+
+  const fnMatch = raw.match(/^rgba?\((.*)\)$/);
+  if (!fnMatch) return null;
+
+  const parts = fnMatch[1]
+    .replace(/\s*\/\s*/g, ' ')
+    .split(/[,\s]+/)
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  if (parts.length < 3) return null;
+
+  const toChannel = (token: string): number => {
+    if (token.endsWith('%')) {
+      const percent = Number.parseFloat(token.slice(0, -1));
+      return clampColorChannel((percent / 100) * 255);
+    }
+    const num = Number.parseFloat(token);
+    return clampColorChannel(num);
+  };
+
+  const r = toChannel(parts[0]);
+  const g = toChannel(parts[1]);
+  const b = toChannel(parts[2]);
+  return rgb2int([r, g, b]);
+}
+
 /**
  * Escape DXF line endings
  * @param text - Text to escape
@@ -1640,6 +1709,29 @@ export class MTextColor {
    */
   toObject(): { aci: number | null; rgb: RGB | null; rgbValue: number | null } {
     return { aci: this._aci, rgb: this.rgb, rgbValue: this._rgbValue };
+  }
+
+  /**
+   * Convert the current color to a CSS hex color string (#rrggbb).
+   * Returns null if the color is ACI-based and has no RGB value.
+   */
+  toCssColor(): string | null {
+    if (this._rgbValue !== null) {
+      return colorNumberToHex(this._rgbValue);
+    }
+    return null;
+  }
+
+  /**
+   * Create an MTextColor from a CSS color string.
+   * Supports #rgb, #rrggbb, rgb(...), rgba(...). Returns null if invalid or transparent.
+   */
+  static fromCssColor(value: string | null | undefined): MTextColor | null {
+    const rgbValue = cssColorToRgbValue(value);
+    if (rgbValue === null) return null;
+    const color = new MTextColor();
+    color.rgbValue = rgbValue;
+    return color;
   }
 
   /**
