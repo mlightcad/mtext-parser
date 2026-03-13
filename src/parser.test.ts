@@ -1586,29 +1586,23 @@ describe('MTextParser', () => {
       expect(tokens[3].ctx.rgb).toEqual([255, 0, 0]);
     });
 
-    it('yields a restore token after leaving a color block and skips \\C256 when no change occurs', () => {
+    it('yields context changes when entering and leaving multiple color blocks', () => {
       const mtext =
-        '{\\C7;White Text} AfterFirst\\P{\\C256;By Layer}\\P{\\c16761035;Pink (0x0FFC0CB)}';
+        '{\\C7;White Text}\\P{\\C256;By Layer}\\P{\\c16761035;Pink (0x0FFC0CB)}\\PRestore ByLayer\\P\\C1;Old Context Color: Red, {\\C2; New Context Color: Yellow, } Restored Context Color: Red';
       const parser = new MTextParser(mtext, undefined, {
         yieldPropertyCommands: true,
       });
       const tokens = Array.from(parser.parse());
       const propTokens = tokens.filter(t => t.type === TokenType.PROPERTIES_CHANGED);
-      const commandTokens = propTokens.filter(t => t.data.command !== undefined);
-
-      expect(commandTokens.map(t => t.data.command)).toEqual(['C', 'c']);
-
-      const restoreAfterFirstBlock = propTokens.find(
-        t => t.data.command === undefined && t.data.depth === 0 && t.data.changes?.aci === 256
-      );
-      expect(restoreAfterFirstBlock).toBeDefined();
-
-      const rgbToken = commandTokens[1];
-      expect(rgbToken.data).toEqual({
-        command: 'c',
-        changes: { aci: null, rgb: [255, 192, 203] },
-        depth: 1,
-      });
+      expect(propTokens.map(t => t.data)).toEqual([
+        { command: 'C', changes: { aci: 7 }, depth: 1 },
+        { command: undefined, changes: { aci: 256 }, depth: 0 },
+        { command: 'c', changes: { aci: null, rgb: [255, 192, 203] }, depth: 1 },
+        { command: undefined, changes: { aci: 256, rgb: null }, depth: 0 },
+        { command: 'C', changes: { aci: 1 }, depth: 0 },
+        { command: 'C', changes: { aci: 2 }, depth: 1 },
+        { command: undefined, changes: { aci: 1 }, depth: 0 },
+      ]);
     });
   });
 });
