@@ -22,7 +22,34 @@ export enum TokenType {
   WRAP_AT_DIMLINE = 8,
   /** Properties changed token with string data (full command) */
   PROPERTIES_CHANGED = 9,
+  /** AutoCAD percent-sign symbol code (`%%c`, `%%d`, `%%p`, `%%ddd`, `%%%`) */
+  PERCENT_SYMBOL = 10,
 }
+
+/**
+ * AutoCAD percent-sign symbol emitted when {@link MTextParserOptions.yieldPercentSymbols}
+ * is enabled.
+ */
+export type PercentSymbolData =
+  | {
+      kind: 'named';
+      /** Percent code letter: `%%c`, `%%d`, or `%%p`. */
+      code: 'c' | 'd' | 'p';
+      /** Unicode expansion used for display (e.g. `%%c` → `Ø`). */
+      char: string;
+    }
+  | {
+      kind: 'numeric';
+      /** Decimal code from `%%ddd` (0–255). */
+      charCode: number;
+      /** `String.fromCharCode(charCode)`. */
+      char: string;
+    }
+  | {
+      kind: 'literal';
+      /** Literal percent from `%%%`. */
+      char: '%';
+    };
 
 /**
  * Represents a factor value that can be either absolute or relative.
@@ -102,6 +129,7 @@ export type TokenData = {
   [TokenType.NEW_COLUMN]: null;
   [TokenType.WRAP_AT_DIMLINE]: null;
   [TokenType.PROPERTIES_CHANGED]: ChangedProperties;
+  [TokenType.PERCENT_SYMBOL]: PercentSymbolData;
 };
 
 /**
@@ -439,6 +467,12 @@ export interface MTextParserOptions {
    */
   resetParagraphParameters?: boolean;
   /**
+   * Whether to emit {@link TokenType.PERCENT_SYMBOL} tokens for AutoCAD `%%` symbol
+   * codes instead of expanding them into {@link TokenType.WORD} characters.
+   * @default false
+   */
+  yieldPercentSymbols?: boolean;
+  /**
    * Custom decoder function for MIF (Multibyte Interchange Format) codes.
    * If provided, this function will be used instead of the default decodeMultiByteChar.
    * The function receives the hex code string and should return the decoded character.
@@ -466,6 +500,7 @@ export class MTextParser {
   private continueStroke: boolean = false;
   private yieldPropertyCommands: boolean;
   private resetParagraphParameters: boolean;
+  private yieldPercentSymbols: boolean;
   private inStackContext: boolean = false;
   private mifDecoder: (hex: string) => string;
   private mifCodeLength: 4 | 5 | 'auto';
@@ -482,6 +517,7 @@ export class MTextParser {
     this.ctxStack = new ContextStack(initialCtx);
     this.yieldPropertyCommands = options.yieldPropertyCommands ?? false;
     this.resetParagraphParameters = options.resetParagraphParameters ?? false;
+    this.yieldPercentSymbols = options.yieldPercentSymbols ?? false;
     this.mifDecoder = options.mifDecoder ?? this.decodeMultiByteChar.bind(this);
     this.mifCodeLength = options.mifCodeLength ?? 'auto';
   }
@@ -1161,6 +1197,22 @@ export class MTextParser {
   }
 
   /**
+   * Builds {@link PercentSymbolData} for a recognized `%%` code letter.
+   */
+  private buildPercentSymbolData(
+    code: string,
+    specialChar: string
+  ): PercentSymbolData | null {
+    if (code === 'c' || code === 'd' || code === 'p') {
+      return { kind: 'named', code, char: specialChar };
+    }
+    if (code === '%') {
+      return { kind: 'literal', char: '%' };
+    }
+    return null;
+  }
+
+  /**
    * Parse MText content into tokens
    * @yields MTextToken objects
    */
@@ -1168,6 +1220,7 @@ export class MTextParser {
     const wordToken = TokenType.WORD;
     const spaceToken = TokenType.SPACE;
     let followupToken: TokenType | null = null;
+    let followupData: TokenData[TokenType] | undefined;
 
     function resetParagraph(ctx: MTextContext): Partial<ParagraphProperties> {
       const prev = { ...ctx.paragraph };
@@ -1306,6 +1359,17 @@ export class MTextParser {
           const specialChar = SPECIAL_CHAR_ENCODING[code];
           if (specialChar) {
             this.scanner.consume(3);
+            if (this.yieldPercentSymbols) {
+              const symbolData = this.buildPercentSymbolData(code, specialChar);
+              if (symbolData) {
+                if (word) {
+                  followupToken = TokenType.PERCENT_SYMBOL;
+                  followupData = symbolData;
+                  return [wordToken, word];
+                }
+                return [TokenType.PERCENT_SYMBOL, symbolData];
+              }
+            }
             word += specialChar;
             continue;
           } else {
@@ -1319,6 +1383,19 @@ export class MTextParser {
             if (digits.every(d => d >= '0' && d <= '9')) {
               const charCode = Number.parseInt(digits.join(''), 10);
               this.scanner.consume(5);
+              if (this.yieldPercentSymbols) {
+                const symbolData: PercentSymbolData = {
+                  kind: 'numeric',
+                  charCode,
+                  char: String.fromCharCode(charCode),
+                };
+                if (word) {
+                  followupToken = TokenType.PERCENT_SYMBOL;
+                  followupData = symbolData;
+                  return [wordToken, word];
+                }
+                return [TokenType.PERCENT_SYMBOL, symbolData];
+              }
               word += String.fromCharCode(charCode);
             } else {
               // Skip invalid special character codes
@@ -1431,8 +1508,13 @@ export class MTextParser {
           }
         }
         if (followupToken) {
-          yield new MTextToken(followupToken, this.ctxStack.current.copy(), null);
+          yield new MTextToken(
+            followupToken,
+            this.ctxStack.current.copy(),
+            followupData ?? null
+          );
           followupToken = null;
+          followupData = undefined;
         }
       } else {
         break;

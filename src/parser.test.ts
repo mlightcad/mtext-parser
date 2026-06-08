@@ -746,6 +746,87 @@ describe('MTextParser', () => {
         expect(tokens[0].data).toBe('Text');
       });
     });
+
+    describe('yieldPercentSymbols', () => {
+      it('emits PERCENT_SYMBOL tokens for %%c, %%d, and %%p', () => {
+        const parser = new MTextParser('%%c%%d%%p', undefined, {
+          yieldPercentSymbols: true,
+        });
+        const tokens = Array.from(parser.parse());
+        expect(tokens).toHaveLength(3);
+        expect(tokens[0]).toMatchObject({
+          type: TokenType.PERCENT_SYMBOL,
+          data: { kind: 'named', code: 'c', char: 'Ø' },
+        });
+        expect(tokens[1]).toMatchObject({
+          type: TokenType.PERCENT_SYMBOL,
+          data: { kind: 'named', code: 'd', char: '°' },
+        });
+        expect(tokens[2]).toMatchObject({
+          type: TokenType.PERCENT_SYMBOL,
+          data: { kind: 'named', code: 'p', char: '±' },
+        });
+      });
+
+      it('emits PERCENT_SYMBOL for numeric %%ddd codes', () => {
+        const parser = new MTextParser('%%130%%132', undefined, {
+          yieldPercentSymbols: true,
+        });
+        const tokens = Array.from(parser.parse());
+        expect(tokens).toHaveLength(2);
+        expect(tokens[0]).toMatchObject({
+          type: TokenType.PERCENT_SYMBOL,
+          data: {
+            kind: 'numeric',
+            charCode: 130,
+            char: String.fromCharCode(130),
+          },
+        });
+        expect(tokens[1]).toMatchObject({
+          type: TokenType.PERCENT_SYMBOL,
+          data: {
+            kind: 'numeric',
+            charCode: 132,
+            char: String.fromCharCode(132),
+          },
+        });
+      });
+
+      it('emits PERCENT_SYMBOL for literal percent (%%%)', () => {
+        const parser = new MTextParser('%%%', undefined, {
+          yieldPercentSymbols: true,
+        });
+        const tokens = Array.from(parser.parse());
+        expect(tokens).toHaveLength(1);
+        expect(tokens[0]).toMatchObject({
+          type: TokenType.PERCENT_SYMBOL,
+          data: { kind: 'literal', char: '%' },
+        });
+      });
+
+      it('interleaves WORD and PERCENT_SYMBOL tokens', () => {
+        const parser = new MTextParser('A%%cB', undefined, {
+          yieldPercentSymbols: true,
+        });
+        const tokens = Array.from(parser.parse());
+        expect(tokens).toHaveLength(3);
+        expect(tokens[0].type).toBe(TokenType.WORD);
+        expect(tokens[0].data).toBe('A');
+        expect(tokens[1].type).toBe(TokenType.PERCENT_SYMBOL);
+        expect(tokens[1].data).toEqual({ kind: 'named', code: 'c', char: 'Ø' });
+        expect(tokens[2].type).toBe(TokenType.WORD);
+        expect(tokens[2].data).toBe('B');
+      });
+
+      it('preserves default WORD expansion when yieldPercentSymbols is false', () => {
+        const parser = new MTextParser('%%c', undefined, {
+          yieldPercentSymbols: false,
+        });
+        const tokens = Array.from(parser.parse());
+        expect(tokens[0].type).toBe(TokenType.WORD);
+        expect(tokens[0].data).toBe('Ø');
+      });
+    });
   });
 
   describe('GBK character encoding', () => {
