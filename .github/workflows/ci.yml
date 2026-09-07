@@ -32,15 +32,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          # npm@latest (Trusted Publishing) requires Node ^22.22.2+
-          node-version: 22.22.2
+          # 22.22.2 ships a broken npm (missing promise-retry) that cannot
+          # self-upgrade; 22.22.3+ includes the fix (nodejs/node#62425).
+          node-version: 22.22.3
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
           scope: '@mlightcad'
 
       - name: Upgrade npm for Trusted Publishing
         if: startsWith(github.ref, 'refs/tags/')
-        run: npm install -g npm@latest
+        run: |
+          # OIDC Trusted Publishing requires npm >= 11.5.1. Pin the 11.x line
+          # instead of @latest to avoid engine mismatches with Node 22.
+          npm install -g npm@11
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
