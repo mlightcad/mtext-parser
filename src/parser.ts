@@ -601,6 +601,53 @@ export class MTextParser {
   }
 
   /**
+   * Parse an AutoCAD `\U+nnnn` escape after the leading `U` has been consumed.
+   *
+   * @remarks
+   * Exactly four hexadecimal digits are read. A high surrogate followed by
+   * another `\U+nnnn` low surrogate is combined into one supplementary-plane
+   * character (AutoCAD's encoding for code points above U+FFFF).
+   *
+   * @returns The decoded character, or `null` if the escape is incomplete
+   */
+  private parseUnicodeEscape(): string | null {
+    if (this.scanner.peek() !== '+') {
+      return null;
+    }
+
+    this.scanner.consume(1); // Consume the '+'
+    const hexMatch = this.scanner.tail.match(/^[0-9A-Fa-f]{4}/);
+    if (!hexMatch) {
+      this.scanner.consume(-1); // Rewind '+'
+      return null;
+    }
+
+    const codeUnit = parseInt(hexMatch[0], 16);
+    this.scanner.consume(hexMatch[0].length);
+
+    // High surrogate: combine with a following \U+ low-surrogate escape
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const pairMatch = this.scanner.tail.match(/^\\U\+([0-9A-Fa-f]{4})/);
+      if (pairMatch) {
+        const lowUnit = parseInt(pairMatch[1], 16);
+        if (lowUnit >= 0xdc00 && lowUnit <= 0xdfff) {
+          this.scanner.consume(pairMatch[0].length);
+          const codePoint =
+            ((codeUnit - 0xd800) << 10) + (lowUnit - 0xdc00) + 0x10000;
+          try {
+            return String.fromCodePoint(codePoint);
+          } catch {
+            return '▯';
+          }
+        }
+      }
+    }
+
+    // BMP code unit, or an unpaired surrogate kept as a UTF-16 unit
+    return String.fromCharCode(codeUnit);
+  }
+
+  /**
    * Push current context onto the stack
    */
   private pushCtx(): void {
@@ -1306,32 +1353,21 @@ export class MTextParser {
                 // If not a valid multi-byte code, treat as literal text
                 word += '\\M';
                 continue;
-              case 'U':
-                // Handle Unicode escape: \U+XXXX or \U+XXXXXXXX
-                if (this.scanner.peek() === '+') {
-                  this.scanner.consume(1); // Consume the '+'
-                  const hexMatch = this.scanner.tail.match(/^[0-9A-Fa-f]{4,8}/);
-                  if (hexMatch) {
-                    const hexCode = hexMatch[0];
-                    this.scanner.consume(hexCode.length);
-                    const codePoint = parseInt(hexCode, 16);
-                    let decodedChar = '';
-                    try {
-                      decodedChar = String.fromCodePoint(codePoint);
-                    } catch {
-                      decodedChar = '▯';
-                    }
-                    if (word) {
-                      return [wordToken, word];
-                    }
-                    return [wordToken, decodedChar];
+              case 'U': {
+                // AutoCAD \U+nnnn uses exactly four hex digits. Characters
+                // outside the BMP are encoded as two consecutive \U+XXXX
+                // UTF-16 surrogate escapes.
+                const decodedChar = this.parseUnicodeEscape();
+                if (decodedChar !== null) {
+                  if (word) {
+                    return [wordToken, word];
                   }
-                  // If no valid hex code found, rewind the '+' character
-                  this.scanner.consume(-1);
+                  return [wordToken, decodedChar];
                 }
                 // If not a valid Unicode code, treat as literal text
                 word += '\\U';
                 continue;
+              }
               default:
                 if (cmd) {
                   try {
