@@ -1029,24 +1029,61 @@ describe('MTextParser', () => {
   });
 
   describe('Unicode (\\U+XXXX) escape sequences', () => {
-    it('decodes Unicode BMP and supplementary plane code points', () => {
+    it('decodes Unicode BMP code points with exactly four hex digits', () => {
       // Greek capital omega: \U+03A9
-      let parser = new MTextParser('Omega: \\U+03A9');
-      let tokens = Array.from(parser.parse());
+      const parser = new MTextParser('Omega: \\U+03A9');
+      const tokens = Array.from(parser.parse());
       expect(tokens[0].type).toBe(TokenType.WORD);
       expect(tokens[0].data).toBe('Omega:');
       expect(tokens[1].type).toBe(TokenType.SPACE);
       expect(tokens[2].type).toBe(TokenType.WORD);
       expect(tokens[2].data).toBe('Ω');
+    });
 
-      // Emoji: \U+1F600 (grinning face)
-      parser = new MTextParser('Smile: \\U+1F600');
-      tokens = Array.from(parser.parse());
+    it('decodes supplementary-plane characters via UTF-16 surrogate pairs', () => {
+      // Grinning face U+1F600 as AutoCAD surrogate pair \U+D83D\U+DE00
+      const parser = new MTextParser('Smile: \\U+D83D\\U+DE00');
+      const tokens = Array.from(parser.parse());
       expect(tokens[0].type).toBe(TokenType.WORD);
       expect(tokens[0].data).toBe('Smile:');
       expect(tokens[1].type).toBe(TokenType.SPACE);
       expect(tokens[2].type).toBe(TokenType.WORD);
       expect(tokens[2].data).toBe('😀');
+    });
+
+    it('preserves literal supplementary-plane characters in word tokens', () => {
+      const parser = new MTextParser('Hello 😀 world');
+      const tokens = Array.from(parser.parse());
+      expect(tokens[0].data).toBe('Hello');
+      expect(tokens[1].type).toBe(TokenType.SPACE);
+      expect(tokens[2].type).toBe(TokenType.WORD);
+      expect(tokens[2].data).toBe('😀');
+      expect([...(tokens[2].data as string)]).toEqual(['😀']);
+      expect(tokens[3].type).toBe(TokenType.SPACE);
+      expect(tokens[4].data).toBe('world');
+    });
+
+    it('does not consume hex digits after the four-digit code (cad-viewer#615)', () => {
+      const parser = new MTextParser('\\U+22054.0通');
+      const tokens = Array.from(parser.parse());
+      const words = tokens
+        .filter(token => token.type === TokenType.WORD)
+        .map(token => String(token.data))
+        .join('');
+      expect(words).toBe('∅4.0通');
+    });
+
+    it('treats a fifth hex digit after \\U+XXXX as literal text', () => {
+      // Non-standard \\U+1F600 must be read as U+1F60 + literal "0"
+      const parser = new MTextParser('Smile: \\U+1F600');
+      const tokens = Array.from(parser.parse());
+      expect(tokens[0].type).toBe(TokenType.WORD);
+      expect(tokens[0].data).toBe('Smile:');
+      expect(tokens[1].type).toBe(TokenType.SPACE);
+      expect(tokens[2].type).toBe(TokenType.WORD);
+      expect(tokens[2].data).toBe(String.fromCharCode(0x1f60));
+      expect(tokens[3].type).toBe(TokenType.WORD);
+      expect(tokens[3].data).toBe('0');
     });
 
     it('handles invalid or incomplete Unicode escapes as literal text', () => {
