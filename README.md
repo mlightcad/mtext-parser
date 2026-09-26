@@ -17,6 +17,8 @@ The text formatting is done by inline codes. You can get more information from [
 - “%%c” and “%%C” renders “Ø” (alt-0216)
 - “%%d” and “%%D” renders “°” (alt-0176)
 - “%%p” and “%%P” renders “±” (alt-0177)
+- “%%nnn” renders the character whose Unicode/ASCII decimal code is nnn (1–3 digits; e.g. “%%34” → `"`, “%%176” → `°`)
+- “%%%” renders a literal percent sign
 
 ### Multi-byte character encoding commands "\M" and "\m":
 - Format: "\M+XXXX" or "\m+XXXX" where XXXX is a 4-character hex code

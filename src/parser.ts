@@ -22,7 +22,7 @@ export enum TokenType {
   WRAP_AT_DIMLINE = 8,
   /** Properties changed token with string data (full command) */
   PROPERTIES_CHANGED = 9,
-  /** AutoCAD percent-sign symbol code (`%%c`, `%%d`, `%%p`, `%%ddd`, `%%%`) */
+  /** AutoCAD percent-sign symbol code (`%%c`, `%%d`, `%%p`, `%%nnn`, `%%%`) */
   PERCENT_SYMBOL = 10,
 }
 
@@ -40,7 +40,10 @@ export type PercentSymbolData =
     }
   | {
       kind: 'numeric';
-      /** Decimal code from `%%ddd` (0–255). */
+      /**
+       * Decimal code from `%%nnn`, where `nnn` is 1–3 digits (Unicode/ASCII
+       * code point, e.g. `%%34` → `"`, `%%176` → `°`).
+       */
       charCode: number;
       /** `String.fromCharCode(charCode)`. */
       char: string;
@@ -1410,15 +1413,25 @@ export class MTextParser {
             continue;
           } else {
             /**
-             * Supports Control Codes: `%%ddd`, where ddd is a three-digit decimal number representing the ASCII code value of the character.
+             * Supports Control Codes: `%%nnn`, where nnn is 1–3 decimal digits
+             * for the character's Unicode/ASCII code point (e.g. `%%34` → `"`,
+             * `%%176` → `°`). Digit count is not fixed at three.
              *
              * Reference: https://help.autodesk.com/view/ACD/2026/ENU/?guid=GUID-968CBC1D-BA99-4519-ABDD-88419EB2BF92
              */
-            const digits = [code, this.scanner.peek(3), this.scanner.peek(4)];
+            const digitChars: string[] = [];
+            for (let i = 0; i < 3; i++) {
+              const d = this.scanner.peek(2 + i);
+              if (d >= '0' && d <= '9') {
+                digitChars.push(d);
+              } else {
+                break;
+              }
+            }
 
-            if (digits.every(d => d >= '0' && d <= '9')) {
-              const charCode = Number.parseInt(digits.join(''), 10);
-              this.scanner.consume(5);
+            if (digitChars.length > 0) {
+              const charCode = Number.parseInt(digitChars.join(''), 10);
+              this.scanner.consume(2 + digitChars.length);
               if (this.yieldPercentSymbols) {
                 const symbolData: PercentSymbolData = {
                   kind: 'numeric',
@@ -1434,7 +1447,7 @@ export class MTextParser {
               }
               word += String.fromCharCode(charCode);
             } else {
-              // Skip invalid special character codes
+              // Skip invalid special character codes (`%%` + non-digit)
               this.scanner.consume(3);
             }
 

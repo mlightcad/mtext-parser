@@ -745,6 +745,35 @@ describe('MTextParser', () => {
         expect(tokens[0].type).toBe(TokenType.WORD);
         expect(tokens[0].data).toBe('Text');
       });
+
+      it('renders numeric %%nnn with 1–3 digits', () => {
+        // Two digits: %%34 → " (U+0022)
+        let parser = new MTextParser(' 4%%34 ABS');
+        let tokens = Array.from(parser.parse());
+        expect(tokens).toHaveLength(4);
+        expect(tokens[0].type).toBe(TokenType.SPACE);
+        expect(tokens[1].type).toBe(TokenType.WORD);
+        expect(tokens[1].data).toBe('4"');
+        expect(tokens[2].type).toBe(TokenType.SPACE);
+        expect(tokens[3].type).toBe(TokenType.WORD);
+        expect(tokens[3].data).toBe('ABS');
+
+        // One digit followed by non-digit
+        parser = new MTextParser('%%9x');
+        tokens = Array.from(parser.parse());
+        expect(tokens[0].type).toBe(TokenType.WORD);
+        expect(tokens[0].data).toBe('\tx');
+
+        // Three digits (degree)
+        parser = new MTextParser('%%176');
+        tokens = Array.from(parser.parse());
+        expect(tokens[0].data).toBe('°');
+
+        // Leading-zero three-digit form of the same code point as %%34
+        parser = new MTextParser('%%034');
+        tokens = Array.from(parser.parse());
+        expect(tokens[0].data).toBe('"');
+      });
     });
 
     describe('yieldPercentSymbols', () => {
@@ -768,13 +797,21 @@ describe('MTextParser', () => {
         });
       });
 
-      it('emits PERCENT_SYMBOL for numeric %%ddd codes', () => {
-        const parser = new MTextParser('%%130%%132', undefined, {
+      it('emits PERCENT_SYMBOL for numeric %%nnn codes', () => {
+        const parser = new MTextParser('%%34%%130%%132', undefined, {
           yieldPercentSymbols: true,
         });
         const tokens = Array.from(parser.parse());
-        expect(tokens).toHaveLength(2);
+        expect(tokens).toHaveLength(3);
         expect(tokens[0]).toMatchObject({
+          type: TokenType.PERCENT_SYMBOL,
+          data: {
+            kind: 'numeric',
+            charCode: 34,
+            char: '"',
+          },
+        });
+        expect(tokens[1]).toMatchObject({
           type: TokenType.PERCENT_SYMBOL,
           data: {
             kind: 'numeric',
@@ -782,7 +819,7 @@ describe('MTextParser', () => {
             char: String.fromCharCode(130),
           },
         });
-        expect(tokens[1]).toMatchObject({
+        expect(tokens[2]).toMatchObject({
           type: TokenType.PERCENT_SYMBOL,
           data: {
             kind: 'numeric',
