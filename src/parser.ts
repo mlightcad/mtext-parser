@@ -1166,12 +1166,15 @@ export class MTextParser {
     let tabStops: (number | string)[] = [];
 
     /**
-     * Parse a floating point number from the scanner's current position
-     * Handles optional sign, decimal point, and scientific notation
-     * @returns The parsed float value, or 0 if no valid number is found
+     * Parse a floating point number from the scanner's current position.
+     * Accepts an optional sign, a leading decimal point, and scientific notation,
+     * matching {@link extractFloatExpression}.
+     * On a match, consumes the number and any immediately following commas.
+     * @returns The parsed value, or 0 when the scanner is not on a number.
+     *          A miss consumes nothing, so looping callers must advance themselves.
      */
     const parseFloatValue = (): number => {
-      const match = scanner.tail.match(/^[+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?/);
+      const match = scanner.tail.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/);
       if (match) {
         const value = parseFloat(match[0]);
         scanner.consume(match[0].length);
@@ -1209,18 +1212,29 @@ export class MTextParser {
         case 't': // Tab stops
           tabStops = [];
           while (scanner.hasData) {
+            const indexBefore = scanner.currentIndex;
             const type = scanner.peek();
             if (type === 'r' || type === 'c') {
               scanner.consume(1);
+              const valueIndex = scanner.currentIndex;
               const value = parseFloatValue();
-              tabStops.push(type + value.toString());
+              // 0 is also the miss result, so record a right/center stop only
+              // when a number was consumed. Otherwise `\ptrz` becomes a fake
+              // right tab at 0.
+              if (scanner.currentIndex !== valueIndex) {
+                tabStops.push(type + value.toString());
+              }
             } else {
               const value = parseFloatValue();
-              if (!isNaN(value)) {
+              if (scanner.currentIndex !== indexBefore) {
                 tabStops.push(value);
-              } else {
-                scanner.consume(1);
               }
+            }
+            // AutoCAD clears tab stops with `\pi0,l0,tz;`. `z` matches no
+            // number and leaves the scanner in place; consume it or this
+            // loop pushes zeros until it runs out of memory.
+            if (scanner.currentIndex === indexBefore) {
+              scanner.consume(1);
             }
           }
           break;

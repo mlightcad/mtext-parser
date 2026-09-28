@@ -1307,6 +1307,57 @@ describe('MTextParser', () => {
       expect(tokens[0].ctx.paragraph.indent).toBe(2);
     });
 
+    it('parses a leading-decimal indent', () => {
+      const parser = new MTextParser('\\pi.5;Indented');
+      const tokens = Array.from(parser.parse());
+      expect(tokens[0].data).toBe('Indented');
+      expect(tokens[0].ctx.paragraph.indent).toBe(0.5);
+    });
+
+    it('parses tab stops', () => {
+      const parser = new MTextParser('\\pt1,2.5,r3;Tabbed');
+      const tokens = Array.from(parser.parse());
+      expect(tokens[0].data).toBe('Tabbed');
+      expect(tokens[0].ctx.paragraph.tabs).toEqual([1, 2.5, 'r3']);
+    });
+
+    it('parses leading-decimal and signed tab stops', () => {
+      const parser = new MTextParser('\\pt.5,r.25,c.75,-1.5,r-2;Tabbed');
+      const tokens = Array.from(parser.parse());
+      expect(tokens[0].data).toBe('Tabbed');
+      expect(tokens[0].ctx.paragraph.tabs).toEqual([0.5, 'r0.25', 'c0.75', -1.5, 'r-2']);
+    });
+
+    it('keeps an explicit zero tab stop', () => {
+      const parser = new MTextParser('\\ptr0,c0,0;Tabbed');
+      const tokens = Array.from(parser.parse());
+      expect(tokens[0].ctx.paragraph.tabs).toEqual(['r0', 'c0', 0]);
+    });
+
+    it('does not invent a zero tab when a right or center stop has no number', () => {
+      const parser = new MTextParser('\\pt1,r,c;Tabbed');
+      const tokens = Array.from(parser.parse());
+      expect(tokens[0].data).toBe('Tabbed');
+      expect(tokens[0].ctx.paragraph.tabs).toEqual([1]);
+    });
+
+    it('does not hang on a tab stop list that clears tab stops', () => {
+      // AutoCAD writes `\pi0,l0,tz;` to clear paragraph tab stops. The `z`
+      // is neither a tab type nor a number, and used to loop forever.
+      const ctx = new MTextContext();
+      ctx.paragraph.indent = 3;
+      ctx.paragraph.left = 4;
+      ctx.paragraph.tabs = [9];
+      const parser = new MTextParser('A\\P\\pi0,l0,tz;B', ctx);
+      const tokens = Array.from(parser.parse());
+      const words = tokens.filter(t => t.type === TokenType.WORD);
+      expect(words.map(t => t.data)).toEqual(['A', 'B']);
+      expect(words[0].ctx.paragraph.tabs).toEqual([9]);
+      expect(words[1].ctx.paragraph.indent).toBe(0);
+      expect(words[1].ctx.paragraph.left).toBe(0);
+      expect(words[1].ctx.paragraph.tabs).toEqual([]);
+    });
+
     it('parses alignment', () => {
       const parser = new MTextParser('\\pqc;Centered');
       const tokens = Array.from(parser.parse());
