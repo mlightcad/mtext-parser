@@ -313,6 +313,36 @@ describe('MTextParser', () => {
       expect(tokens[6].type).toBe(TokenType.WORD);
       expect(tokens[6].data).toBe('2');
     });
+
+    it('keeps pending words before raw newline and tab', () => {
+      // LibreDWG and some DXF paths expand AutoCAD `\P` to a literal `\n`.
+      // The word accumulated before that control must still be emitted.
+      let parser = new MTextParser('技术要求\n1 焊接');
+      let tokens = Array.from(parser.parse());
+      expect(tokens.map(t => [t.type, t.data])).toEqual([
+        [TokenType.WORD, '技术要求'],
+        [TokenType.NEW_PARAGRAPH, null],
+        [TokenType.WORD, '1'],
+        [TokenType.SPACE, null],
+        [TokenType.WORD, '焊接'],
+      ]);
+
+      parser = new MTextParser('abc\tdef');
+      tokens = Array.from(parser.parse());
+      expect(tokens.map(t => [t.type, t.data])).toEqual([
+        [TokenType.WORD, 'abc'],
+        [TokenType.TABULATOR, null],
+        [TokenType.WORD, 'def'],
+      ]);
+
+      parser = new MTextParser('封口;\n2');
+      tokens = Array.from(parser.parse());
+      expect(tokens.map(t => [t.type, t.data])).toEqual([
+        [TokenType.WORD, '封口;'],
+        [TokenType.NEW_PARAGRAPH, null],
+        [TokenType.WORD, '2'],
+      ]);
+    });
   });
 
   describe('formatting', () => {
@@ -1840,6 +1870,30 @@ describe('MTextParser resetParagraphParameters option', () => {
           (t.data as import('./parser').ChangedProperties).changes?.paragraph
       )
     ).toBeUndefined();
+  });
+
+  it('resets paragraph properties after raw newline followup NEW_PARAGRAPH', () => {
+    const ctx = new MTextContext();
+    ctx.paragraph.indent = 2;
+    ctx.paragraph.align = MTextParagraphAlignment.LEFT;
+
+    // Pending word + literal `\n` emits WORD then followup NEW_PARAGRAPH;
+    // reset must still run for the followup token.
+    const parser = new MTextParser('Line1\nLine2', ctx, {
+      yieldPropertyCommands: true,
+      resetParagraphParameters: true,
+    });
+    const tokens = Array.from(parser.parse());
+    expect(tokens.map(t => t.type)).toEqual([
+      TokenType.WORD,
+      TokenType.NEW_PARAGRAPH,
+      TokenType.PROPERTIES_CHANGED,
+      TokenType.WORD,
+    ]);
+    expect(tokens[0].data).toBe('Line1');
+    expect(tokens[3].data).toBe('Line2');
+    const propChanged = tokens[2].data as import('./parser').ChangedProperties;
+    expect(propChanged.changes).toHaveProperty('paragraph');
   });
 });
 
