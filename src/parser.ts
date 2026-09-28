@@ -635,8 +635,7 @@ export class MTextParser {
         const lowUnit = parseInt(pairMatch[1], 16);
         if (lowUnit >= 0xdc00 && lowUnit <= 0xdfff) {
           this.scanner.consume(pairMatch[0].length);
-          const codePoint =
-            ((codeUnit - 0xd800) << 10) + (lowUnit - 0xdc00) + 0x10000;
+          const codePoint = ((codeUnit - 0xd800) << 10) + (lowUnit - 0xdc00) + 0x10000;
           try {
             return String.fromCodePoint(codePoint);
           } catch {
@@ -1249,10 +1248,7 @@ export class MTextParser {
   /**
    * Builds {@link PercentSymbolData} for a recognized `%%` code letter.
    */
-  private buildPercentSymbolData(
-    code: string,
-    specialChar: string
-  ): PercentSymbolData | null {
+  private buildPercentSymbolData(code: string, specialChar: string): PercentSymbolData | null {
     if (code === 'c' || code === 'd' || code === 'p') {
       return { kind: 'named', code, char: specialChar };
     }
@@ -1298,16 +1294,35 @@ export class MTextParser {
         let letter = this.scanner.peek();
         const cmdStartIndex = this.scanner.currentIndex;
 
-        // Handle control characters first
+        // Handle control characters first. Flush any pending word before emitting
+        // paragraph/tab tokens — the same pattern used for spaces and `\P` — so
+        // LibreDWG/DXF converters that expand `\P` to raw `\n` do not drop text.
         if (letter.charCodeAt(0) < 32) {
-          this.scanner.consume(1); // Always consume the control character
           if (letter === '\t') {
+            this.scanner.consume(1);
+            if (word) {
+              followupToken = TokenType.TABULATOR;
+              followupData = null;
+              return [wordToken, word];
+            }
             return [TokenType.TABULATOR, null];
           }
           if (letter === '\n') {
+            this.scanner.consume(1);
+            if (word) {
+              followupToken = TokenType.NEW_PARAGRAPH;
+              followupData = null;
+              return [wordToken, word];
+            }
             return [TokenType.NEW_PARAGRAPH, null];
           }
-          letter = ' ';
+          // Other C0 controls behave like a space delimiter.
+          this.scanner.consume(1);
+          if (word) {
+            followupToken = spaceToken;
+            return [wordToken, word];
+          }
+          return [spaceToken, null];
         }
 
         if (letter === '\\') {
@@ -1540,28 +1555,37 @@ export class MTextParser {
       return [TokenType.NONE, null];
     };
 
+    const maybeResetAfterParagraph = (tokenType: TokenType) => {
+      if (tokenType !== TokenType.NEW_PARAGRAPH || !this.resetParagraphParameters) {
+        return;
+      }
+      // Reset paragraph properties and emit PROPERTIES_CHANGED if needed
+      const ctx = this.ctxStack.current;
+      const changed = resetParagraph(ctx);
+      if (this.yieldPropertyCommands && Object.keys(changed).length > 0) {
+        return new MTextToken(TokenType.PROPERTIES_CHANGED, ctx.copy(), {
+          command: undefined,
+          changes: { paragraph: changed },
+          depth: this.ctxStack.depth,
+        });
+      }
+      return;
+    };
+
     while (true) {
       const [type, data] = nextToken.call(this);
       if (type) {
         yield new MTextToken(type, this.ctxStack.current.copy(), data);
-        if (type === TokenType.NEW_PARAGRAPH && this.resetParagraphParameters) {
-          // Reset paragraph properties and emit PROPERTIES_CHANGED if needed
-          const ctx = this.ctxStack.current;
-          const changed = resetParagraph(ctx);
-          if (this.yieldPropertyCommands && Object.keys(changed).length > 0) {
-            yield new MTextToken(TokenType.PROPERTIES_CHANGED, ctx.copy(), {
-              command: undefined,
-              changes: { paragraph: changed },
-              depth: this.ctxStack.depth,
-            });
-          }
+        const resetToken = maybeResetAfterParagraph(type);
+        if (resetToken) {
+          yield resetToken;
         }
         if (followupToken) {
-          yield new MTextToken(
-            followupToken,
-            this.ctxStack.current.copy(),
-            followupData ?? null
-          );
+          yield new MTextToken(followupToken, this.ctxStack.current.copy(), followupData ?? null);
+          const followupResetToken = maybeResetAfterParagraph(followupToken);
+          if (followupResetToken) {
+            yield followupResetToken;
+          }
           followupToken = null;
           followupData = undefined;
         }
