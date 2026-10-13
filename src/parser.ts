@@ -339,6 +339,45 @@ export function escapeDxfLineEndings(text: string): string {
 }
 
 /**
+ * Doubles single backslashes in bare Windows-path MTEXT so they render literally.
+ *
+ * @remarks
+ * Title-block / PLM tools often write paths such as
+ * `C:\Users\admin\Desktop\PLMWEB...` into MTEXT with **single** backslashes.
+ * AutoCAD MTEXT treats `\P` as a paragraph break and `\U` as a Unicode escape,
+ * so those paths otherwise corrupt. When the whole string looks like a drive or
+ * UNC path and has no brace groups or semicolon-terminated format codes, each
+ * unescaped `\` is doubled (`\\`). Already-paired `\\` sequences are left as a
+ * single MTEXT literal backslash.
+ *
+ * @param text - Raw MTEXT contents
+ * @returns Contents safe for {@link MTextParser}, or `text` unchanged
+ */
+export function escapeBareWindowsPathBackslashes(text: string): string {
+  const trimmed = text.trim();
+  if (!/^[A-Za-z]:\\/.test(trimmed) && !/^\\\\[^\\]/.test(trimmed)) {
+    return text;
+  }
+  // Rich MTEXT (inline styles / groups) — do not rewrite.
+  if (/[{}]/.test(text) || /\\[A-Za-z][^\\;]*;/.test(text)) {
+    return text;
+  }
+
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\\') {
+      out += '\\\\';
+      if (text[i + 1] === '\\') {
+        i++;
+      }
+    } else {
+      out += text[i];
+    }
+  }
+  return out;
+}
+
+/**
  * Check if text contains inline formatting codes
  * @param text - Text to check
  * @returns True if text contains formatting codes
@@ -515,7 +554,7 @@ export class MTextParser {
    * @param options - Parser options
    */
   constructor(content: string, ctx?: MTextContext, options: MTextParserOptions = {}) {
-    this.scanner = new TextScanner(content);
+    this.scanner = new TextScanner(escapeBareWindowsPathBackslashes(content));
     const initialCtx = ctx ?? new MTextContext();
     this.ctxStack = new ContextStack(initialCtx);
     this.yieldPropertyCommands = options.yieldPropertyCommands ?? false;
@@ -1410,11 +1449,14 @@ export class MTextParser {
                     // After processing a property command, continue with normal parsing
                     continue;
                   } catch {
-                    const commandText = this.scanner.tail.slice(
+                    // Invalid / incomplete codes are shown literally (AutoCAD).
+                    // Use absolute indices into the full source — `tail` is already
+                    // relative to the current cursor, so slicing it with absolute
+                    // offsets ate path characters (e.g. `\admin` → `dmdmin`).
+                    word += this.scanner.slice(
                       cmdStartIndex,
                       this.scanner.currentIndex
                     );
-                    word += commandText;
                   }
                 }
             }
@@ -1716,6 +1758,16 @@ export class TextScanner {
    */
   get tail(): string {
     return this.text.slice(this._index);
+  }
+
+  /**
+   * Slice the full source text with absolute indices (not relative to {@link tail}).
+   *
+   * @param start - Inclusive start index in the original content
+   * @param end - Exclusive end index in the original content
+   */
+  slice(start: number, end: number): string {
+    return this.text.slice(start, end);
   }
 
   /**

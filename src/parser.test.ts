@@ -7,6 +7,7 @@ import {
   rgb2int,
   int2rgb,
   escapeDxfLineEndings,
+  escapeBareWindowsPathBackslashes,
   hasInlineFormattingCodes,
   TextScanner,
   getFonts,
@@ -35,6 +36,29 @@ describe('Utility Functions', () => {
       expect(escapeDxfLineEndings('line1\r\nline2')).toBe('line1\\Pline2');
       expect(escapeDxfLineEndings('line1\nline2')).toBe('line1\\Pline2');
       expect(escapeDxfLineEndings('line1\rline2')).toBe('line1\\Pline2');
+    });
+  });
+
+  describe('escapeBareWindowsPathBackslashes', () => {
+    it('doubles single backslashes in a drive path', () => {
+      expect(escapeBareWindowsPathBackslashes('C:\\Users\\admin\\Desktop\\PLMWEB')).toBe(
+        'C:\\\\Users\\\\admin\\\\Desktop\\\\PLMWEB'
+      );
+    });
+
+    it('keeps already-escaped paths unchanged', () => {
+      expect(escapeBareWindowsPathBackslashes('C:\\\\Users\\\\admin')).toBe(
+        'C:\\\\Users\\\\admin'
+      );
+    });
+
+    it('leaves rich MTEXT with format codes alone', () => {
+      const rich = '{\\C1;C:\\Users\\admin}';
+      expect(escapeBareWindowsPathBackslashes(rich)).toBe(rich);
+    });
+
+    it('leaves non-path text alone', () => {
+      expect(escapeBareWindowsPathBackslashes('line1\\Pline2')).toBe('line1\\Pline2');
     });
   });
 
@@ -1171,6 +1195,29 @@ describe('MTextParser', () => {
       expect(tokens[1].type).toBe(TokenType.SPACE);
       expect(tokens[2].type).toBe(TokenType.WORD);
       expect(tokens[2].data).toBe('\\U+ZZZZ');
+    });
+
+    it('keeps unknown format letters as literal backslash + letter', () => {
+      // Regression: catch used tail.slice(absoluteIndices) and ate characters.
+      const parser = new MTextParser('x\\admin\\Desktopy');
+      const words = Array.from(parser.parse())
+        .filter(t => t.type === TokenType.WORD)
+        .map(t => t.data as string)
+        .join('');
+      expect(words).toBe('x\\admin\\Desktopy');
+    });
+
+    it('keeps bare Windows path MTEXT as one literal path (handle 176D / INSERT 58E)', () => {
+      const path =
+        'C:\\Users\\admin\\Desktop\\PLMWEB浏览器问题\\PLMWEB浏览器问题';
+      const parser = new MTextParser(path);
+      const tokens = Array.from(parser.parse());
+      expect(tokens.some(t => t.type === TokenType.NEW_PARAGRAPH)).toBe(false);
+      const words = tokens
+        .filter(t => t.type === TokenType.WORD)
+        .map(t => t.data as string)
+        .join('');
+      expect(words).toBe(path);
     });
   });
 
