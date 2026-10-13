@@ -339,42 +339,57 @@ export function escapeDxfLineEndings(text: string): string {
 }
 
 /**
- * Doubles single backslashes in bare Windows-path MTEXT so they render literally.
+ * Doubles single backslashes inside one Windows path substring.
+ *
+ * Already-paired `\\` sequences stay a single MTEXT literal backslash.
+ */
+function doublePathBackslashes(path: string): string {
+  let out = '';
+  for (let i = 0; i < path.length; i++) {
+    if (path[i] === '\\') {
+      out += '\\\\';
+      if (path[i + 1] === '\\') {
+        i++;
+      }
+    } else {
+      out += path[i];
+    }
+  }
+  return out;
+}
+
+/**
+ * Doubles single backslashes in Windows-path substrings so they render literally.
  *
  * @remarks
  * Title-block / PLM tools often write paths such as
- * `C:\Users\admin\Desktop\PLMWEB...` into MTEXT with **single** backslashes.
+ * `C:\Users\admin\Desktop\PLMWEB...` into MTEXT with **single** backslashes —
+ * either as the whole string or inside a font group like
+ * `{\fSimSun|b0|i0|c134|p2;C:\Users\...\PLMWEB...}`.
  * AutoCAD MTEXT treats `\P` as a paragraph break and `\U` as a Unicode escape,
- * so those paths otherwise corrupt. When the whole string looks like a drive or
- * UNC path and has no brace groups or semicolon-terminated format codes, each
- * unescaped `\` is doubled (`\\`). Already-paired `\\` sequences are left as a
- * single MTEXT literal backslash.
+ * so those paths otherwise corrupt. This finds drive-letter (`C:\...`) and UNC
+ * (`\\server\...`) regions and doubles each unescaped `\`. Format codes outside
+ * those regions (e.g. `\f...;`, intentional `\P`) are left alone.
  *
  * @param text - Raw MTEXT contents
  * @returns Contents safe for {@link MTextParser}, or `text` unchanged
  */
 export function escapeBareWindowsPathBackslashes(text: string): string {
-  const trimmed = text.trim();
-  if (!/^[A-Za-z]:\\/.test(trimmed) && !/^\\\\[^\\]/.test(trimmed)) {
-    return text;
-  }
-  // Rich MTEXT (inline styles / groups) — do not rewrite.
-  if (/[{}]/.test(text) || /\\[A-Za-z][^\\;]*;/.test(text)) {
+  if (!text.includes('\\')) {
     return text;
   }
 
-  let out = '';
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '\\') {
-      out += '\\\\';
-      if (text[i + 1] === '\\') {
-        i++;
-      }
-    } else {
-      out += text[i];
-    }
-  }
-  return out;
+  // Drive paths may sit after a format terminator (`;`) or group open (`{`).
+  // Reject hex/MIF tails such as `\M+1928D:\M+...` (letter before `:` is part
+  // of a hex code) and do not treat `\M+` / `\U+` after the root as a path.
+  // Stop at braces so surrounding MTEXT markup is preserved.
+  const drivePath = /(?<![0-9A-Fa-f+])[A-Za-z]:\\(?![MmUu]\+)[^{}]*/g;
+  // UNC paths: \\server\share\... (not \\U+ / \\M+ escapes).
+  const uncPath = /\\\\(?![UuMm]\+)[^\\{}]+(?:\\[^{}\\]*)*/g;
+
+  let result = text.replace(drivePath, match => doublePathBackslashes(match));
+  result = result.replace(uncPath, match => doublePathBackslashes(match));
+  return result;
 }
 
 /**
@@ -1453,10 +1468,7 @@ export class MTextParser {
                     // Use absolute indices into the full source — `tail` is already
                     // relative to the current cursor, so slicing it with absolute
                     // offsets ate path characters (e.g. `\admin` → `dmdmin`).
-                    word += this.scanner.slice(
-                      cmdStartIndex,
-                      this.scanner.currentIndex
-                    );
+                    word += this.scanner.slice(cmdStartIndex, this.scanner.currentIndex);
                   }
                 }
             }

@@ -47,18 +47,30 @@ describe('Utility Functions', () => {
     });
 
     it('keeps already-escaped paths unchanged', () => {
-      expect(escapeBareWindowsPathBackslashes('C:\\\\Users\\\\admin')).toBe(
-        'C:\\\\Users\\\\admin'
+      expect(escapeBareWindowsPathBackslashes('C:\\\\Users\\\\admin')).toBe('C:\\\\Users\\\\admin');
+    });
+
+    it('escapes drive paths inside font / color groups (handle DBD / INSERT B7B)', () => {
+      const rich =
+        '{\\fSimSun|b0|i0|c134|p2;C:\\Users\\admin\\Desktop\\PLMWEB浏览器问题\\PLMWEB浏览器问题}';
+      expect(escapeBareWindowsPathBackslashes(rich)).toBe(
+        '{\\fSimSun|b0|i0|c134|p2;C:\\\\Users\\\\admin\\\\Desktop\\\\PLMWEB浏览器问题\\\\PLMWEB浏览器问题}'
       );
     });
 
-    it('leaves rich MTEXT with format codes alone', () => {
-      const rich = '{\\C1;C:\\Users\\admin}';
-      expect(escapeBareWindowsPathBackslashes(rich)).toBe(rich);
+    it('escapes a path after a color code without rewriting the code', () => {
+      expect(escapeBareWindowsPathBackslashes('{\\C1;C:\\Users\\admin}')).toBe(
+        '{\\C1;C:\\\\Users\\\\admin}'
+      );
     });
 
     it('leaves non-path text alone', () => {
       expect(escapeBareWindowsPathBackslashes('line1\\Pline2')).toBe('line1\\Pline2');
+    });
+
+    it('does not treat MIF hex tails like D:\\ as a drive path', () => {
+      const mif = '\\M+1928D:\\M+18DD1\\M+197702.0t';
+      expect(escapeBareWindowsPathBackslashes(mif)).toBe(mif);
     });
   });
 
@@ -1208,9 +1220,21 @@ describe('MTextParser', () => {
     });
 
     it('keeps bare Windows path MTEXT as one literal path (handle 176D / INSERT 58E)', () => {
-      const path =
-        'C:\\Users\\admin\\Desktop\\PLMWEB浏览器问题\\PLMWEB浏览器问题';
+      const path = 'C:\\Users\\admin\\Desktop\\PLMWEB浏览器问题\\PLMWEB浏览器问题';
       const parser = new MTextParser(path);
+      const tokens = Array.from(parser.parse());
+      expect(tokens.some(t => t.type === TokenType.NEW_PARAGRAPH)).toBe(false);
+      const words = tokens
+        .filter(t => t.type === TokenType.WORD)
+        .map(t => t.data as string)
+        .join('');
+      expect(words).toBe(path);
+    });
+
+    it('keeps font-wrapped Windows path as one literal path (handle DBD / INSERT B7B)', () => {
+      const path = 'C:\\Users\\admin\\Desktop\\PLMWEB浏览器问题\\PLMWEB浏览器问题';
+      const rich = `{\\fSimSun|b0|i0|c134|p2;${path}}`;
+      const parser = new MTextParser(rich);
       const tokens = Array.from(parser.parse());
       expect(tokens.some(t => t.type === TokenType.NEW_PARAGRAPH)).toBe(false);
       const words = tokens
