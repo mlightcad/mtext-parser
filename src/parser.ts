@@ -359,6 +359,41 @@ function doublePathBackslashes(path: string): string {
 }
 
 /**
+ * True when a path-candidate segment reads as MTEXT markup rather than as a
+ * path component.
+ *
+ * A bare `\` only corrupts rendering when what follows it forms a real MTEXT
+ * control sequence: `\P下一段` is a paragraph break plus text, while `\Users`
+ * or `\admin` stays literal (`\U` without `+` is not an escape). So a segment
+ * is "command-like" when its head would parse as a control sequence.
+ */
+function isCommandLikeSegment(segment: string): boolean {
+  if (segment.length === 0) {
+    return true;
+  }
+  // Complete without an argument: \P \N \X \~ and the \L \O \K toggles.
+  if ('PNX~LlOoKk'.includes(segment[0])) {
+    return true;
+  }
+  // Numeric-argument commands: \C1; \H2.5x; \W0.8; \T1.5; \Q15; \A1;
+  if (/^[ACcHWQT][-+.]?[0-9]/.test(segment)) {
+    return true;
+  }
+  // \M+XXXXX MIF encodings and \U+XXXX Unicode escapes.
+  if (/^[MmUu]\+[0-9A-Fa-f]/.test(segment)) {
+    return true;
+  }
+  // \S1/2; stacking, \fSimSun|...; fonts, \pxqc...; paragraph properties.
+  return (
+    /^[Ss][^;^#]*[;^#]/.test(segment) || /^[fF][^|;]*[|;]/.test(segment) || /^p[^;]*;/.test(segment)
+  );
+}
+
+// A segment ending in a dot-extension (`file.txt`) marks where a path most
+// likely ends; command-like segments after it are markup, not folders.
+const FILE_LIKE_SEGMENT = /\.[A-Za-z0-9]+\s*$/;
+
+/**
  * Doubles single backslashes in Windows-path substrings so they render literally.
  *
  * @remarks
@@ -366,10 +401,23 @@ function doublePathBackslashes(path: string): string {
  * `C:\Users\admin\Desktop\PLMWEB...` into MTEXT with **single** backslashes —
  * either as the whole string or inside a font group like
  * `{\fSimSun|b0|i0|c134|p2;C:\Users\...\PLMWEB...}`.
- * AutoCAD MTEXT treats `\P` as a paragraph break and `\U` as a Unicode escape,
- * so those paths otherwise corrupt. This finds drive-letter (`C:\...`) and UNC
- * (`\\server\...`) regions and doubles each unescaped `\`. Format codes outside
- * those regions (e.g. `\f...;`, intentional `\P`) are left alone.
+ * AutoCAD MTEXT treats `\P` as a paragraph break and `\U+XXXX` as a Unicode
+ * escape, so those paths otherwise corrupt. This finds drive-letter
+ * (`C:\...`) and UNC (`\\server\...`) regions and doubles each unescaped `\`.
+ * Format codes outside those regions (e.g. `\f...;`, intentional `\P`) are
+ * left alone.
+ *
+ * A candidate like `X:\...` is inherently ambiguous: `Gu:\PA1` is a word plus
+ * a paragraph break while `C:\Users\PLMWEB` is a path. The tie is broken by
+ * evidence inside the candidate itself: it is treated as a path only when at
+ * least one `\segment` does NOT read as an MTEXT control sequence
+ * ({@link isCommandLikeSegment}). Label-plus-break text (`A1:\P...`,
+ * `Gu:\PA1...`) consists solely of command-like segments and is left alone,
+ * whatever precedes the drive letter; real paths almost always contain a
+ * plain segment such as `\Users` and are escaped even when glued to
+ * preceding text. The residual ambiguity — a path whose every segment starts
+ * with a command letter, e.g. a bare `C:\PLMWEB` — is resolved in favor of
+ * keeping paragraph breaks.
  *
  * @param text - Raw MTEXT contents
  * @returns Contents safe for {@link MTextParser}, or `text` unchanged
@@ -379,29 +427,81 @@ export function escapeBareWindowsPathBackslashes(text: string): string {
     return text;
   }
 
-  // Drive paths may sit after a format terminator (`;`) or group open (`{`).
-  // A drive letter is a standalone single letter, so reject a candidate whose
-  // preceding character is itself a letter, digit, or `+` — that catches MIF
-  // hex tails such as `\M+1928D:\M+...` and ordinary words ending in a letter
-  // plus colon, e.g. `Gu:\P...` where `\P` is a paragraph break, not a path.
-  // A preceding letter that is itself an MTEXT command (a bare `\` before it,
-  // e.g. `...\PC:\Users`) does not count as part of a word.
-  // Do not treat `\M+` / `\U+` after the root as a path, and stop at braces so
-  // surrounding MTEXT markup is preserved. A lone `\` escaping a group open
-  // (`\{`) is never part of the path — doubling it would turn the literal
-  // brace into a group delimiter. A lone `\` before `}` stays in the path:
-  // inside a group ({\f...;C:\temp\}) it is a trailing separator, not an
-  // escaped brace, and treating it as `\}` would leave the group unclosed.
-  const drivePath =
-    /(?<!(?<!\\)[\p{L}\p{N}+])[A-Za-z]:\\(?![MmUu]\+)(?:[^{}\\]|\\\\|\\(?!\{))*/gu;
-  // UNC paths: \\server\share\... (not \\U+ / \\M+ escapes). The server
-  // segment may not contain whitespace, so an escaped backslash `\\` followed
-  // by a space in plain text (e.g. `\\ \{x\}`) is not mistaken for a UNC root,
-  // and `\{` escapes after a segment are left alone just like above.
-  const uncPath = /\\\\(?![UuMm]\+)[^\\{}\s]+(?:\\(?!\{)[^{}\\]*)*/g;
+  // Candidate roots: a drive letter before a backslash (the `C:` of
+  // `C:\...`) or a UNC server (`\\server`). `\\U+`/`\\M+` escapes are not
+  // roots, and a hostname may not contain whitespace or `:`, so an escaped
+  // backslash before plain text (`\\ \{x\}`, `\\PC: ...`) is not mistaken
+  // for one. Both kinds share the segment walk and the evidence check below.
+  const rootPattern = /[A-Za-z]:(?=\\)|\\\\(?![UuMm]\+)[^\\{}\s:]+/g;
+  let result = '';
+  let copied = 0;
+  let root: RegExpExecArray | null;
+  while ((root = rootPattern.exec(text)) !== null) {
+    const start = root.index;
+    // Walk the `\segment` repetitions after the root. Segments stop at the
+    // next backslash and at braces, so surrounding MTEXT markup is preserved.
+    const segments: { value: string; end: number }[] = [];
+    let cursor = start + root[0].length;
+    let end = cursor;
+    while (cursor < text.length && text[cursor] === '\\') {
+      let runEnd = cursor;
+      while (runEnd < text.length && text[runEnd] === '\\') {
+        runEnd++;
+      }
+      let segEnd = runEnd;
+      while (
+        segEnd < text.length &&
+        text[segEnd] !== '\\' &&
+        text[segEnd] !== '{' &&
+        text[segEnd] !== '}'
+      ) {
+        segEnd++;
+      }
+      if (segEnd === runEnd) {
+        // Separators with no segment after them. A lone `\` escaping a group
+        // open (`\{`) is never part of the path — doubling it would turn the
+        // literal brace into a group delimiter. Before `}` it is a trailing
+        // separator, not an escaped brace (treating it as `\}` would leave
+        // the group unclosed), and at the end of the string it stays too.
+        end = text[runEnd] === '{' && (runEnd - cursor) % 2 === 1 ? runEnd - 1 : runEnd;
+        break;
+      }
+      segments.push({ value: text.slice(runEnd, segEnd), end: segEnd });
+      end = segEnd;
+      cursor = segEnd;
+    }
 
-  let result = text.replace(drivePath, match => doublePathBackslashes(match));
-  result = result.replace(uncPath, match => doublePathBackslashes(match));
+    if (!segments.some(s => !isCommandLikeSegment(s.value))) {
+      // No path evidence: every segment reads as markup (or there is none).
+      // Scanning resumes right after the root, so a real path nested inside,
+      // e.g. the `C:\Users` in `x:\PC:\Users`, is still found.
+      continue;
+    }
+
+    // A path rarely continues past a file name: when the segments after the
+    // last file-like one all read as markup (`C:\Temp\file.txt\P第二行`),
+    // the path ends at the file and the markup keeps working.
+    let finalEnd = end;
+    let lastFileLike = -1;
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (FILE_LIKE_SEGMENT.test(segments[i].value)) {
+        lastFileLike = i;
+        break;
+      }
+    }
+    if (
+      lastFileLike >= 0 &&
+      lastFileLike < segments.length - 1 &&
+      segments.slice(lastFileLike + 1).every(s => isCommandLikeSegment(s.value))
+    ) {
+      finalEnd = segments[lastFileLike].end;
+    }
+
+    result += text.slice(copied, start) + doublePathBackslashes(text.slice(start, finalEnd));
+    copied = finalEnd;
+    rootPattern.lastIndex = finalEnd;
+  }
+  result += text.slice(copied);
   return result;
 }
 
