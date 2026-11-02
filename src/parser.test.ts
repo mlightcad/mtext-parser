@@ -72,6 +72,18 @@ describe('Utility Functions', () => {
       const mif = '\\M+1928D:\\M+18DD1\\M+197702.0t';
       expect(escapeBareWindowsPathBackslashes(mif)).toBe(mif);
     });
+
+    it('does not treat a word ending in letter+colon before \\P as a drive path (cad-viewer #822)', () => {
+      const mtext =
+        '{\\L导料板/Gu:\\PA1: 1-%%C6.0螺丝过孔,单+0.00,割一刀\\P零件外形:单+0慢丝割一修二}';
+      expect(escapeBareWindowsPathBackslashes(mtext)).toBe(mtext);
+    });
+
+    it('still escapes a drive path that follows a \\P paragraph break', () => {
+      expect(escapeBareWindowsPathBackslashes('line1\\PC:\\Users\\admin')).toBe(
+        'line1\\PC:\\\\Users\\\\admin'
+      );
+    });
   });
 
   describe('hasInlineFormattingCodes', () => {
@@ -1242,6 +1254,18 @@ describe('MTextParser', () => {
         .map(t => t.data as string)
         .join('');
       expect(words).toBe(path);
+    });
+
+    it('breaks paragraphs at \\P after a word ending in letter+colon (cad-viewer #822)', () => {
+      const mtext =
+        '{\\L导料板/Gu:\\PA1: 1-%%C6.0螺丝过孔,单+0.00,割一刀\\PA2: 2-%%C6.0螺丝过孔,单+0.00,割一刀\\P      %%C9.5正面沉深4.0\\PB : 2-%%C4.000合销孔,单+0.005,割\\P零件外形:单+0慢丝割一修二}';
+      const parser = new MTextParser(mtext);
+      const tokens = Array.from(parser.parse());
+      const paragraphBreaks = tokens.filter(t => t.type === TokenType.NEW_PARAGRAPH);
+      expect(paragraphBreaks.length).toBe(5);
+      const words = tokens.filter(t => t.type === TokenType.WORD).map(t => t.data as string);
+      expect(words.some(w => w.includes('\\P'))).toBe(false);
+      expect(words[0]).toBe('导料板/Gu:');
     });
   });
 

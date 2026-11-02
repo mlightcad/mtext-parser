@@ -380,10 +380,15 @@ export function escapeBareWindowsPathBackslashes(text: string): string {
   }
 
   // Drive paths may sit after a format terminator (`;`) or group open (`{`).
-  // Reject hex/MIF tails such as `\M+1928D:\M+...` (letter before `:` is part
-  // of a hex code) and do not treat `\M+` / `\U+` after the root as a path.
-  // Stop at braces so surrounding MTEXT markup is preserved.
-  const drivePath = /(?<![0-9A-Fa-f+])[A-Za-z]:\\(?![MmUu]\+)[^{}]*/g;
+  // A drive letter is a standalone single letter, so reject a candidate whose
+  // preceding character is itself a letter, digit, or `+` — that catches MIF
+  // hex tails such as `\M+1928D:\M+...` and ordinary words ending in a letter
+  // plus colon, e.g. `Gu:\P...` where `\P` is a paragraph break, not a path.
+  // A preceding letter that is itself an MTEXT command (a bare `\` before it,
+  // e.g. `...\PC:\Users`) does not count as part of a word.
+  // Do not treat `\M+` / `\U+` after the root as a path, and stop at braces so
+  // surrounding MTEXT markup is preserved.
+  const drivePath = /(?<!(?<!\\)[\p{L}\p{N}+])[A-Za-z]:\\(?![MmUu]\+)[^{}]*/gu;
   // UNC paths: \\server\share\... (not \\U+ / \\M+ escapes).
   const uncPath = /\\\\(?![UuMm]\+)[^\\{}]+(?:\\[^{}\\]*)*/g;
 
