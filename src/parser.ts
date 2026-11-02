@@ -387,10 +387,18 @@ export function escapeBareWindowsPathBackslashes(text: string): string {
   // A preceding letter that is itself an MTEXT command (a bare `\` before it,
   // e.g. `...\PC:\Users`) does not count as part of a word.
   // Do not treat `\M+` / `\U+` after the root as a path, and stop at braces so
-  // surrounding MTEXT markup is preserved.
-  const drivePath = /(?<!(?<!\\)[\p{L}\p{N}+])[A-Za-z]:\\(?![MmUu]\+)[^{}]*/gu;
-  // UNC paths: \\server\share\... (not \\U+ / \\M+ escapes).
-  const uncPath = /\\\\(?![UuMm]\+)[^\\{}]+(?:\\[^{}\\]*)*/g;
+  // surrounding MTEXT markup is preserved. A lone `\` escaping a group open
+  // (`\{`) is never part of the path — doubling it would turn the literal
+  // brace into a group delimiter. A lone `\` before `}` stays in the path:
+  // inside a group ({\f...;C:\temp\}) it is a trailing separator, not an
+  // escaped brace, and treating it as `\}` would leave the group unclosed.
+  const drivePath =
+    /(?<!(?<!\\)[\p{L}\p{N}+])[A-Za-z]:\\(?![MmUu]\+)(?:[^{}\\]|\\\\|\\(?!\{))*/gu;
+  // UNC paths: \\server\share\... (not \\U+ / \\M+ escapes). The server
+  // segment may not contain whitespace, so an escaped backslash `\\` followed
+  // by a space in plain text (e.g. `\\ \{x\}`) is not mistaken for a UNC root,
+  // and `\{` escapes after a segment are left alone just like above.
+  const uncPath = /\\\\(?![UuMm]\+)[^\\{}\s]+(?:\\(?!\{)[^{}\\]*)*/g;
 
   let result = text.replace(drivePath, match => doublePathBackslashes(match));
   result = result.replace(uncPath, match => doublePathBackslashes(match));
