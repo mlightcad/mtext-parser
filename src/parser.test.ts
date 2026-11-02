@@ -84,6 +84,29 @@ describe('Utility Functions', () => {
         'line1\\PC:\\\\Users\\\\admin'
       );
     });
+
+    it('does not treat an escaped backslash before text as a UNC root (#17)', () => {
+      expect(escapeBareWindowsPathBackslashes('\\\\ \\{x\\}')).toBe('\\\\ \\{x\\}');
+    });
+
+    it('does not pull a brace escape into a drive path', () => {
+      expect(escapeBareWindowsPathBackslashes('C:\\temp \\{x\\}')).toBe('C:\\\\temp \\{x\\}');
+    });
+
+    it('still escapes UNC paths', () => {
+      expect(escapeBareWindowsPathBackslashes('\\\\server\\share\\file.txt')).toBe(
+        '\\\\server\\\\share\\\\file.txt'
+      );
+    });
+
+    it('keeps a trailing path separator before a group close', () => {
+      expect(escapeBareWindowsPathBackslashes('{\\fArial;C:\\temp\\}')).toBe(
+        '{\\fArial;C:\\\\temp\\\\}'
+      );
+      expect(escapeBareWindowsPathBackslashes('{\\fArial;\\\\server\\share\\}')).toBe(
+        '{\\fArial;\\\\server\\\\share\\\\}'
+      );
+    });
   });
 
   describe('hasInlineFormattingCodes', () => {
@@ -1254,6 +1277,14 @@ describe('MTextParser', () => {
         .map(t => t.data as string)
         .join('');
       expect(words).toBe(path);
+    });
+
+    it('keeps escaped braces after an escaped backslash (#17)', () => {
+      const parser = new MTextParser('\\\\ \\{x\\}');
+      const words = Array.from(parser.parse())
+        .filter(t => t.type === TokenType.WORD)
+        .map(t => t.data as string);
+      expect(words).toEqual(['\\', '{x}']);
     });
 
     it('breaks paragraphs at \\P after a word ending in letter+colon (cad-viewer #822)', () => {
