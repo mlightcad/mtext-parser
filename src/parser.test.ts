@@ -85,6 +85,35 @@ describe('Utility Functions', () => {
       );
     });
 
+    it('does not treat a single-letter label before \\P as a drive path', () => {
+      expect(escapeBareWindowsPathBackslashes('标高 E:\\P下一段')).toBe('标高 E:\\P下一段');
+      expect(escapeBareWindowsPathBackslashes('导料板/u:\\PA1: 下一段')).toBe(
+        '导料板/u:\\PA1: 下一段'
+      );
+      expect(escapeBareWindowsPathBackslashes('A:\\P第二行')).toBe('A:\\P第二行');
+    });
+
+    it('does not treat letter+colon followed by several \\P breaks as a drive path', () => {
+      expect(escapeBareWindowsPathBackslashes('导a:\\P下行\\P再行')).toBe('导a:\\P下行\\P再行');
+    });
+
+    it('escapes a drive path glued directly to preceding text', () => {
+      expect(escapeBareWindowsPathBackslashes('路径C:\\Users\\Public\\PLM')).toBe(
+        '路径C:\\\\Users\\\\Public\\\\PLM'
+      );
+    });
+
+    it('does not read an escaped backslash before a word as a \\P command', () => {
+      // `\\PC:` is a literal backslash plus the word "PC:", not a `\P` break.
+      expect(escapeBareWindowsPathBackslashes('foo\\\\PC:\\P下一行')).toBe('foo\\\\PC:\\P下一行');
+    });
+
+    it('stops a drive path at a paragraph break after a file name', () => {
+      expect(escapeBareWindowsPathBackslashes('C:\\Temp\\file.txt\\P第二行')).toBe(
+        'C:\\\\Temp\\\\file.txt\\P第二行'
+      );
+    });
+
     it('does not treat an escaped backslash before text as a UNC root (#17)', () => {
       expect(escapeBareWindowsPathBackslashes('\\\\ \\{x\\}')).toBe('\\\\ \\{x\\}');
     });
@@ -97,6 +126,11 @@ describe('Utility Functions', () => {
       expect(escapeBareWindowsPathBackslashes('\\\\server\\share\\file.txt')).toBe(
         '\\\\server\\\\share\\\\file.txt'
       );
+    });
+
+    it('does not treat an escaped backslash before a paragraph break as a UNC path', () => {
+      // `\\server` here is a literal backslash plus text; `\P第二行` is a break.
+      expect(escapeBareWindowsPathBackslashes('\\\\server\\P第二行')).toBe('\\\\server\\P第二行');
     });
 
     it('keeps a trailing path separator before a group close', () => {
@@ -1297,6 +1331,15 @@ describe('MTextParser', () => {
       const words = tokens.filter(t => t.type === TokenType.WORD).map(t => t.data as string);
       expect(words.some(w => w.includes('\\P'))).toBe(false);
       expect(words[0]).toBe('导料板/Gu:');
+    });
+
+    it('breaks paragraphs at \\P after a single-letter label', () => {
+      const parser = new MTextParser('标高 E:\\P下一段\\PA:\\P第三段');
+      const tokens = Array.from(parser.parse());
+      const paragraphBreaks = tokens.filter(t => t.type === TokenType.NEW_PARAGRAPH);
+      expect(paragraphBreaks.length).toBe(3);
+      const words = tokens.filter(t => t.type === TokenType.WORD).map(t => t.data as string);
+      expect(words.some(w => w.includes('\\P'))).toBe(false);
     });
   });
 
