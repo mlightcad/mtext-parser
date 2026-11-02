@@ -208,3 +208,11 @@ The parser handles invalid commands gracefully:
 - Invalid stacking commands are treated as literal text
 
 This makes the parser robust for handling real-world MText content that may contain errors or unexpected formatting.
+
+## Acknowledgements
+
+This project is a TypeScript port of the MTEXT parser from [ezdxf](https://github.com/mozman/ezdxf) by Manfred Moitzi, licensed under the MIT License. Many thanks to the ezdxf project for its excellent work on parsing DXF MTEXT content and documenting the [MTEXT format internals](https://ezdxf.mozman.at/docs/dxfinternals/entities/mtext.html).
+
+## License
+
+This project is licensed under the [MIT License](LICENSE). The LICENSE file also includes the original MIT License notice of the ezdxf project (Copyright (c) 2020 Manfred Moitzi), on which this parser is based.
